@@ -3,23 +3,6 @@ from sqlalchemy import text
 from database import engine
 from pydantic import BaseModel
 app=FastAPI()
-companies=[
-            {
-                    'id':1,
-                    'type':'システムエンジニア',
-                    'name':'ITカンファー'
-            },
-            {
-                    'id':2,
-                    'type':'プログラマー',
-                    'name':'シンアース'
-            },
-            {
-                        'id':3,
-                        'type':'エンジニア',
-                     'name':'OZ MODE'
-            }
-        ]
 
 class CompanyCreate(BaseModel):
     name:str
@@ -43,29 +26,41 @@ def get_companies():
 
 @app.get('/companies/search')
 def search_company(keyword:str|None = None):
-    if not keyword:
+    if not keyword or not keyword.strip():
         return{
             'message':'请输入搜索关键词',
             'companies':[]
         }
-    result=[]
+
     normalized_keyword=keyword.strip().lower()
-    for company in companies:
-        if (normalized_keyword in company['name'].lower() 
-            or normalized_keyword in company['type'].lower()
-            ):
-            result.append(company)
-    return{
-                'keyword':keyword,
-                'companies':result
-            }
+    search_pattern = f'%{normalized_keyword}%'
+
+    with engine.connect() as connection:
+        result=connection.execute(
+            text(
+                '''select id,name,type
+                from companies
+                where lower(name) like :keyword
+                or lower(type) like :keyword'''
+            ),
+            {
+                'keyword':search_pattern
+                }
+
+        )
+
+        rows = result.mappings().all()
+        
+    return {'keyword':keyword,
+            'companies':[dict(row) for row in rows]}
 
 @app.get('/companies/{company_id}')
 def get_company(company_id:int):
     with engine.connect() as connection:
         result=connection.execute(text(
             '''
-            select id,name,type from companies
+            select id,name,type 
+            from companies
             where id = :company_id
             '''),
             {
@@ -85,7 +80,7 @@ def get_company(company_id:int):
 @app.post('/companies')
 def create_company(company:CompanyCreate):
     with engine.connect() as connection:
-        reulst= connection.execute(
+        result= connection.execute(
             text(
                 '''
                 insert into companies(name,type) 
@@ -100,35 +95,96 @@ def create_company(company:CompanyCreate):
         )
 
         connection.commit()
- 
+        new_id = result.lastrowid
     return {
-        'id':reulst.lastrowid,
+        'id':new_id,
         'name':company.name,
         'type':company.type
     }
 
 @app.put('/companies/{company_id}')
-def update_company(company_id:int,new_date:CompanyCreate):
-    for company in companies:
-        if company['id'] ==company_id:
-            company['name']=new_date.name
-            company['type']=new_date.type
+def update_company(company_id:int,new_data:CompanyCreate):
+    with engine.connect() as connection:
+        result=connection.execute(
+            text(
+                '''
+                select id
+                from companies
+                where id = :company_id
+                '''
+            ),
+            {
+                'company_id':company_id
+             },
+        )
+    
+        row = result.mappings().first()
 
-            return company
-
-    return {'error':'没有找到该公司'} 
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail='Company not found'
+        )
+        
+        connection.execute(
+            text(
+            '''
+            update companies 
+            set name =:name,
+                type =:type
+            where id = :company_id
+            '''),
+            {'name':new_data.name,
+             'type':new_data.type,
+             'company_id':company_id
+             }
+        )
+        connection.commit()
+    return {
+        'id':company_id,
+        'name':new_data.name,
+        'type':new_data.type,
+    }
 
 @app.delete('/companies/{company_id}')
 def delete_conpany(company_id:int):
-    for company in companies:
-        if company['id']==company_id:
-            companies.remove(company)
+    with engine.connect() as connection:
+        result=connection.execute(
+                text(
+                '''
+                select id from companies
+                where id=:company_id
+                '''
+                ),
+                {
+                'company_id':company_id
+                }
+                )
+        row = result.mappings().first()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail='没有找到该公司'
+                )
 
-            return {'message':'删除成功',
-                    'company':company}
+        connection.execute(
+            text(
+                '''
+                delete from companies
+                where id = :company_id
+                '''
+            ),
+            {
+                'company_id':company_id
+            }
+        )
         
-    raise HTTPException(status_code=404,detail='没有找到该公司')
+        connection.commit()
 
+    return{
+        'message':'Company deleted',
+        'id':company_id
+    }
 @app.get('/profile')
 def get_profile():
     return{
