@@ -319,14 +319,15 @@ def get_applications(keyword:str | None = None):
 def get_application(application_id:int):
     with engine.connect() as connection:
         application_result=connection.execute(text(
-        '''select applications.id,
-                applications.company_id,
-                companies.name as company_name,
-                applications.position,
-                applications.application_status,
-                applications.applied_date,
-                applications.job_url,
-                applications.notes
+            '''
+            select applications.id,
+            applications.company_id,
+            companies.name as company_name,
+            applications.position,
+            applications.application_status,
+            applications.applied_date,
+            applications.job_url,
+            applications.notes
             from applications
             join companies
                 on applications.company_id = companies.id
@@ -344,6 +345,123 @@ def get_application(application_id:int):
             detail='Application not found')
     
     return dict(row)
+
+
+
+
+@app.put('/applications/{application_id}')
+def update_application(application_id:int,application:ApplicationCreate):
+    with engine.connect() as connection:
+        application_result=connection.execute(
+            text(
+                '''select id from applications
+                where id=:application_id'''
+              
+            ),  
+            {
+                'application_id':application_id
+            }
+        )
+        application_row=application_result.mappings().first()
+
+        if application_row is None:
+            raise(HTTPException(
+                status_code=404,
+                detail='Application not found'
+            ))
+
+        company_result=connection.execute(
+            text(
+                '''select companies.id from companies
+                where companies.id=:company_id'''
+            ),
+            {
+                'company_id':application.company_id
+            }
+        )
+
+        company_row=company_result.mappings().first()
+
+        if company_row is None:
+            raise(HTTPException(
+                status_code=404,
+                detail='Company not found'
+            ))
+
+        connection.execute(text(
+            '''
+            update applications
+            set 
+            company_id=:company_id,
+            position=:position,
+            application_status=:application_status,
+            applied_date=:applied_date,
+            job_url=:job_url,
+            notes=:notes
+            where id=:application_id
+            '''
+        ),
+        {
+            'company_id':application.company_id,
+            'position':application.position,
+            'application_status':application.application_status,
+            'applied_date':application.applied_date,
+            'job_url':application.job_url,
+            'notes':application.notes,
+             "application_id": application_id
+        })
+
+        connection.commit()
+
+        return {
+            'id':application_id,
+            'company_id':application.company_id,
+            'position':application.position,
+            'application_status':application.application_status,
+            'applied_date':application.applied_date,
+            'job_url':application.job_url,
+            'notes':application.notes
+            }
+
+@app.delete('/applications/{application_id}')
+def delete_application(application_id:int):
+    with engine.connect() as connection:
+        result = connection.execute(
+            text(
+                '''
+                select id from applications
+                where id=:application_id
+                '''
+            ),
+            {
+                'application_id':application_id
+            }
+        )
+
+        row= result.mappings().first()
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail='Application not found'
+            )
+            
+        connection.execute(
+            text(
+                '''
+                    delete from applications
+                    where id=:application_id
+                '''
+            ),
+            {
+                'application_id':application_id
+            }
+        )
+
+        connection.commit()
+
+        return {'message':'Application was deleted',
+                'application_id':application_id}
 
 @app.get('/profile')
 def get_profile():
