@@ -15,4 +15,4 @@ database_url=URL.create(
     database=os.getenv('DB_NAME')
 )
 
-engine=create_engine(database_url)
+engine=create_engine(database_url, pool_pre_ping=True)
