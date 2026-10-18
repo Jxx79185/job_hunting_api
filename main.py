@@ -1,19 +1,37 @@
 from fastapi import FastAPI,HTTPException
 from sqlalchemy import text
 from database import engine
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from datetime import date
 
 app=FastAPI()
 
 class CompanyCreate(BaseModel):
-    name:str
-    type:str
+    name: str
+    type: str
+
+    @field_validator('name', 'type')
+    @classmethod
+    def validate_non_empty(cls, value: str) -> str:
+        # Spaces alone must not be stored as company information.
+        value = value.strip()
+        if not value:
+            raise ValueError('This field must not be blank')
+        return value
+
 
 class ApplicationCreate(BaseModel):
-    company_id:int
-    position:str
-    application_status:str
+    company_id: int = Field(gt=0)
+    position: str
+    application_status: str
+
+    @field_validator('position', 'application_status')
+    @classmethod
+    def validate_non_empty(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('This field must not be blank')
+        return value
     applied_date:date | None = None
     job_url:str | None = None
     notes:str |None = None
@@ -31,9 +49,9 @@ def get_companies():
             text('select id,name,type from companies')
         )
         rows=result.mappings().all()
-        
+
     return [dict(row) for row in rows]
-    
+
 
 @app.get('/companies/search')
 def search_company(keyword:str|None = None):
@@ -61,7 +79,7 @@ def search_company(keyword:str|None = None):
         )
 
         rows = result.mappings().all()
-        
+
     return {'keyword':keyword,
             'companies':[dict(row) for row in rows]}
 
@@ -70,7 +88,7 @@ def get_company(company_id:int):
     with engine.connect() as connection:
         result=connection.execute(text(
             '''
-            select id,name,type 
+            select id,name,type
             from companies
             where id = :company_id
             '''),
@@ -85,7 +103,7 @@ def get_company(company_id:int):
                 status_code=404,
                 detail='Company not found'
             )
-        
+
     return dict(row)
 
 @app.post('/companies')
@@ -94,7 +112,7 @@ def create_company(company:CompanyCreate):
         result= connection.execute(
             text(
                 '''
-                insert into companies(name,type) 
+                insert into companies(name,type)
                 values(:name,:type)
 
                 '''
@@ -128,7 +146,7 @@ def update_company(company_id:int,new_data:CompanyCreate):
                 'company_id':company_id
              },
         )
-    
+
         row = result.mappings().first()
 
         if row is None:
@@ -136,11 +154,11 @@ def update_company(company_id:int,new_data:CompanyCreate):
                 status_code=404,
                 detail='Company not found'
         )
-        
+
         connection.execute(
             text(
             '''
-            update companies 
+            update companies
             set name =:name,
                 type =:type
             where id = :company_id
@@ -189,7 +207,7 @@ def delete_conpany(company_id:int):
                 'company_id':company_id
             }
         )
-        
+
         connection.commit()
 
     return{
@@ -261,7 +279,6 @@ def create_application(application:ApplicationCreate):
 
 @app.get('/applications')
 def get_applications(keyword:str | None = None):
-    print("新版 GET /applications 被执行了")
     sql = '''
             select
             applications.id,
@@ -276,10 +293,10 @@ def get_applications(keyword:str | None = None):
             join companies
                 on applications.company_id=companies.id
                 '''
-        
+
     conditions = []
     parameters = {}
-    
+
     if  keyword and keyword.strip():
         keywords = keyword.strip().lower().split()
 
@@ -290,7 +307,7 @@ def get_applications(keyword:str | None = None):
                               lower(companies.name) like :{parameters_name}
                               or lower(applications.position) like :{parameters_name}
                               or lower(applications.application_status) like :{parameters_name})''')
-            
+
             parameters[parameters_name]=f'%{word}%'
 
     if conditions:
@@ -310,12 +327,10 @@ def get_applications(keyword:str | None = None):
     "applications": [dict(row) for row in rows]
     }
 
-    print("rows =", rows)
-    print("response =", response)
 
     return response
 
-@app.get('/application/{application_id}')
+@app.get('/applications/{application_id}')
 def get_application(application_id:int):
     with engine.connect() as connection:
         application_result=connection.execute(text(
@@ -333,9 +348,9 @@ def get_application(application_id:int):
                 on applications.company_id = companies.id
             where applications.id = :applications_id
             '''
-            
+
         ),
-            {'applications_id': application_id} 
+            {'applications_id': application_id}
         )
 
         row = application_result.mappings().first()
@@ -343,7 +358,7 @@ def get_application(application_id:int):
         raise HTTPException(
             status_code=404,
             detail='Application not found')
-    
+
     return dict(row)
 
 
@@ -356,8 +371,8 @@ def update_application(application_id:int,application:ApplicationCreate):
             text(
                 '''select id from applications
                 where id=:application_id'''
-              
-            ),  
+
+            ),
             {
                 'application_id':application_id
             }
@@ -391,7 +406,7 @@ def update_application(application_id:int,application:ApplicationCreate):
         connection.execute(text(
             '''
             update applications
-            set 
+            set
             company_id=:company_id,
             position=:position,
             application_status=:application_status,
@@ -445,7 +460,7 @@ def delete_application(application_id:int):
                 status_code=404,
                 detail='Application not found'
             )
-            
+
         connection.execute(
             text(
                 '''
